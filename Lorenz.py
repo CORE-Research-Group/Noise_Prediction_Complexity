@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import os
 import matplotlib
+import re
 
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
@@ -31,7 +32,7 @@ n_runs = 5  # total runs per noise configuration
 
 
 # Will generate new data without checking if prior data exists
-force_regenerate = False
+force_regenerate = True
 
 noise_configs = {
     "gaussian": [1, 0.3, 0.1],
@@ -317,10 +318,12 @@ def create_dataset():
                 t_eval, clean = generate_lorenz_series()
                 noisy = apply_noise(clean, t_eval, noise_type, intensity)
 
+                clean_norm, _ = zscore_scale(clean)
+
                 # Save visualization
                 if run == 0:
                     fig, ax = plt.subplots(2, 1, figsize=(10, 4), sharex=True)
-                    ax[0].plot(t_eval, clean, color="black", lw=1)
+                    ax[0].plot(t_eval, clean_norm, color="black", lw=1)
                     ax[0].set_title("Clean Lorenz")
                     ax[0].set_ylabel("x(t)")
                     ax[0].grid(alpha=0.3)
@@ -372,7 +375,8 @@ def create_dataset():
             plt.close()
             print(f"Saved clean Lorenz visualization: {out_path}")
 
-        comp_df = extract_complexity_metrics(clean, t_eval)
+        clean_norm, _ = zscore_scale(clean)
+        comp_df = extract_complexity_metrics(clean_norm, t_eval)
         comp_df["noise_type"] = "none"
         comp_df["noise_intensity"] = 0
         comp_df["noise_label_task1"] = "none"
@@ -558,6 +562,7 @@ reports_df_task2, fi_mean_task2 = run_grouped_cross_validation(
     task_name="Noise Category + Intensity Classification"
 )
 
+"""
 labels_task2 = sorted(full_df["noise_label_task2"].unique())
 # Read per-fold predictions (if not kept, re-run them)
 cm_files_exist = any("confmat_noise_category_+_intensity_classification" in f for f in os.listdir(results_folder))
@@ -582,7 +587,7 @@ try:
     plot_average_confusion_matrix([], labels_task2, "Noise Category + Intensity Classification")
 except Exception as e:
     print(f"Could not re-plot average CM for Task 2: {e}")
-
+"""
 # Restore dataset
 full_df = backup_df
 
@@ -604,7 +609,10 @@ def create_cv_summary_excel(results_folder):
     summary_rows = []
 
     # Detect all cv_reports_*.csv files
-    report_files = [f for f in os.listdir(results_folder) if f.startswith("cv_reports_") and f.endswith(".csv")]
+    report_files = [
+        f for f in os.listdir(results_folder)
+        if f.endswith(".csv") and ("cv_reports_" in f)
+    ]
     if not report_files:
         print(" No CV report files found in results folder!")
         return
@@ -613,7 +621,13 @@ def create_cv_summary_excel(results_folder):
         path = os.path.join(results_folder, file)
         df = pd.read_csv(path)
 
-        task_name = file.replace("cv_reports_", "").replace(".csv", "").replace("_", " ").title()
+        task_name = (
+            file.replace("Lorenz_", "")
+            .replace("cv_reports_", "")
+            .replace(".csv", "")
+            .replace("_", " ")
+            .title()
+        )
 
         # Compute average metrics
         acc = None
@@ -645,3 +659,94 @@ def create_cv_summary_excel(results_folder):
 
 # Run the summary creation
 create_cv_summary_excel(results_folder)
+
+
+
+def export_feature_importance_summary(results_folder, top_k=20):
+    """
+    Collects per-task feature importance CSVs and creates:
+      - Excel summary (one sheet per task + combined)
+      - combined CSV ranking (mean across tasks)
+    """
+    fi_files = [
+        f for f in os.listdir(results_folder)
+        if f.startswith("Lorenz_cv_feature_importance_") and f.endswith(".csv")
+    ]
+    if not fi_files:
+        print("⚠️ No feature-importance CSVs found.")
+        return
+
+    # ---- load all per-task FI ----
+    per_task = {}
+    for f in fi_files:
+        path = os.path.join(results_folder, f)
+
+        # task name from file
+        task_key = (
+            f.replace("Lorenz_cv_feature_importance_", "")
+             .replace(".csv", "")
+        )
+
+        df = pd.read_csv(path)
+
+        # normalize column names just in case
+        # expected: Feature, Importance
+        if "Feature" not in df.columns or "Importance" not in df.columns:
+            print(f"⚠️ Skipping {f}: missing Feature/Importance columns.")
+            continue
+
+        per_task[task_key] = df.sort_values("Importance", ascending=False).reset_index(drop=True)
+
+    if not per_task:
+        print("⚠️ No usable feature-importance files found.")
+        return
+
+    # ---- combined ranking across tasks ----
+    # join by Feature and average importances across tasks
+    merged = None
+    for task_key, df in per_task.items():
+        d = df[["Feature", "Importance"]].copy()
+        d = d.rename(columns={"Importance": f"Importance_{task_key}"})
+        merged = d if merged is None else merged.merge(d, on="Feature", how="outer")
+
+    imp_cols = [c for c in merged.columns if c.startswith("Importance_")]
+    merged["Importance_mean_across_tasks"] = merged[imp_cols].mean(axis=1, skipna=True)
+    merged["Importance_std_across_tasks"] = merged[imp_cols].std(axis=1, skipna=True)
+
+    merged = merged.sort_values("Importance_mean_across_tasks", ascending=False).reset_index(drop=True)
+
+    # ---- save combined CSV ----
+    out_csv = os.path.join(results_folder, "Lorenz_feature_importance_combined_across_tasks.csv")
+    merged.to_csv(out_csv, index=False)
+    print(f"✅ Saved combined FI CSV: {out_csv}")
+
+    # ---- write Excel with sheets ----
+    out_xlsx = os.path.join(results_folder, "Lorenz_feature_importance_summary.xlsx")
+    with pd.ExcelWriter(out_xlsx, engine="openpyxl") as writer:
+        # per task
+        for task_key, df in per_task.items():
+            sheet = re.sub(r"[^A-Za-z0-9_]+", "_", task_key)[:31]  # Excel sheet name limit
+            df.head(top_k).to_excel(writer, sheet_name=sheet, index=False)
+
+        # combined
+        merged.head(5 * top_k).to_excel(writer, sheet_name="combined", index=False)
+
+    print(f"✅ Saved FI Excel summary: {out_xlsx}")
+
+    # ---- optional: global plot top-K across tasks ----
+    top = merged.head(top_k).copy()
+    plt.figure(figsize=(8, 5))
+    plt.barh(top["Feature"][::-1], top["Importance_mean_across_tasks"][::-1],
+             xerr=top["Importance_std_across_tasks"][::-1], capsize=4)
+    plt.xlabel("Importance (mean ± std across tasks)")
+    plt.title("Lorenz – Global Feature Importance (across tasks)")
+    plt.tight_layout()
+    out_png = os.path.join(results_folder, "Lorenz_feature_importance_global_across_tasks.png")
+    plt.savefig(out_png, dpi=200, bbox_inches="tight")
+    plt.close()
+    print(f"✅ Saved global FI plot: {out_png}")
+
+
+# call it at the very end
+export_feature_importance_summary(results_folder, top_k=20)
+

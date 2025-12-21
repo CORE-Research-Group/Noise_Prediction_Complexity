@@ -29,7 +29,7 @@ np.random.seed(42)
 n_runs = 5  # total runs per noise configuration
 
 # Will generate new data without checking if prior data exists
-force_regenerate = False
+force_regenerate = True
 
 noise_configs = {
     "gaussian": [1, 0.3, 0.1],
@@ -315,9 +315,11 @@ def create_dataset():
                 t_eval, clean = generate_roessler_series()
                 noisy = apply_noise(clean, t_eval, noise_type, intensity)
 
+                clean_norm, _ = zscore_scale(clean)
+
                 if run == 0:
                     fig, ax = plt.subplots(2, 1, figsize=(10, 4), sharex=True)
-                    ax[0].plot(t_eval, clean, color="black", lw=1)
+                    ax[0].plot(t_eval, clean_norm, color="black", lw=1)
                     ax[0].set_title("Clean Rössler")
                     ax[0].set_ylabel("x(t)")
                     ax[0].grid(alpha=0.3)
@@ -366,7 +368,8 @@ def create_dataset():
             plt.close()
             print(f"Saved clean Rössler visualization: {out_path}")
 
-        comp_df = extract_complexity_metrics(clean, t_eval)
+        clean_norm, _ = zscore_scale(clean)
+        comp_df = extract_complexity_metrics(clean_norm, t_eval)
         comp_df["noise_type"] = "none"
         comp_df["noise_intensity"] = 0
         comp_df["noise_label_task1"] = "none"

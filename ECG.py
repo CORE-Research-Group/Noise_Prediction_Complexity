@@ -45,7 +45,7 @@ np.random.seed(42)
 n_runs = 5  # total runs per noise configuration
 
 # Will generate new data without checking if prior data exists
-force_regenerate = False
+force_regenerate = True
 
 noise_configs = {
     "gaussian": [1, 0.3, 0.1],
@@ -230,9 +230,10 @@ def create_results_folder(base_folder="ECG_Noise_Exp"):
     return folder_path
 
 
-results_folder = create_results_folder()
 base_folder = "ECG_Noise_Exp"
 os.makedirs(base_folder, exist_ok=True)
+results_folder = create_results_folder(base_folder)
+
 
 # -----------------------------
 # Metadata
@@ -279,19 +280,25 @@ def create_dataset():
 
                 # Generate ECG
                 t_eval, clean = generate_ecg_series_variable(run_id=run_counter)
+
+                # ✅ normalize clean for apples-to-apples plotting
+                clean_norm, _ = zscore_scale(clean)
+
+                # noisy is already normalized inside apply_noise()
                 noisy = apply_noise(clean, t_eval, noise_type, intensity)
 
-                if run == 0:  # visualize only once per intensity
-                    fig, ax = plt.subplots(2, 1, figsize=(10, 4), sharex=True)
-                    ax[0].plot(t_eval, clean, color="black", lw=1)
-                    ax[0].set_title("Clean ECG")
-                    ax[0].set_ylabel("Amplitude")
+                if run == 0:
+                    fig, ax = plt.subplots(2, 1, figsize=(10, 4), sharex=True, sharey=True)
+
+                    ax[0].plot(t_eval, clean_norm, color="black", lw=1)
+                    ax[0].set_title("Clean ECG (z-scored)")
+                    ax[0].set_ylabel("Amplitude (z)")
                     ax[0].grid(alpha=0.3)
 
                     ax[1].plot(t_eval, noisy, color="tab:red", lw=1)
-                    ax[1].set_title(f"{noise_type} noise (intensity={intensity})")
+                    ax[1].set_title(f"{noise_type} noise (intensity={intensity}) [on z-scored ECG]")
                     ax[1].set_xlabel("Time [s]")
-                    ax[1].set_ylabel("Amplitude")
+                    ax[1].set_ylabel("Amplitude (z)")
                     ax[1].grid(alpha=0.3)
 
                     plt.tight_layout()
@@ -319,11 +326,12 @@ def create_dataset():
         run_counter += 1
         print(f" Clean run {run_counter}/{total_clean_runs}")
         t_eval, clean = generate_ecg_series_variable(run_id=run_counter + 1000)
+        clean_norm, _ = zscore_scale(clean)
 
         # Save visualization for the first clean run only
         if run == 0:
             plt.figure(figsize=(10, 2.5))
-            plt.plot(t_eval, clean, color="black", lw=1)
+            plt.plot(t_eval, clean_norm, color="black", lw=1)
             plt.title("Clean ECG (no noise)")
             plt.xlabel("Time [s]")
             plt.ylabel("Amplitude")
@@ -335,7 +343,10 @@ def create_dataset():
             print(f"📊 Saved clean ECG visualization: {out_path}")
 
         # Extract metrics
-        comp_df = extract_complexity_metrics(clean, t_eval)
+        clean_norm, _ = zscore_scale(clean)
+
+        # Extract metrics from normalized clean signal
+        comp_df = extract_complexity_metrics(clean_norm, t_eval)
         comp_df["noise_type"] = "none"
         comp_df["noise_intensity"] = 0
         comp_df["noise_label_task1"] = "none"
@@ -679,7 +690,11 @@ def create_cv_summary_excel(results_folder):
     summary_rows = []
 
     # Detect all cv_reports_*.csv files in the results folder
-    report_files = [f for f in os.listdir(results_folder) if f.startswith("cv_reports_") and f.endswith(".csv")]
+    report_files = [
+        f for f in os.listdir(results_folder)
+        if f.startswith("ECG_cv_reports_") and f.endswith(".csv")
+    ]
+
     if not report_files:
         print("No CV report files found in results folder!")
         return
@@ -689,7 +704,12 @@ def create_cv_summary_excel(results_folder):
         df = pd.read_csv(path)
 
         # Clean up the task name
-        task_name = file.replace("cv_reports_", "").replace(".csv", "").replace("_", " ").title()
+        task_name = (
+            file.replace("ECG_cv_reports_", "")
+            .replace(".csv", "")
+            .replace("_", " ")
+            .title()
+        )
 
         # Compute average metrics safely
         acc = None
