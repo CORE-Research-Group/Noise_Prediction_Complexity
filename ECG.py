@@ -540,13 +540,16 @@ def run_grouped_cross_validation(task_label_col, task_name, loss_function="Multi
         print(f"\n Fold {fold}/5 – {task_name} (stratified by group)")
 
         clf = CatBoostClassifier(
-            iterations=300,
-            depth=10,
-            learning_rate=0.1,
+            iterations=2000,
+            depth=8,
+            learning_rate=0.05,
             loss_function=loss_function,
             random_seed=42,
+            l2_leaf_reg=5,
+            rsm=0.8,
             verbose=False
         )
+
         clf.fit(X_train, y_train)
         y_pred = clf.predict(X_test)
 

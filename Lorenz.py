@@ -673,7 +673,7 @@ def export_feature_importance_summary(results_folder, top_k=20):
         if f.startswith("Lorenz_cv_feature_importance_") and f.endswith(".csv")
     ]
     if not fi_files:
-        print("⚠️ No feature-importance CSVs found.")
+        print("No feature-importance CSVs found.")
         return
 
     # ---- load all per-task FI ----
@@ -692,13 +692,13 @@ def export_feature_importance_summary(results_folder, top_k=20):
         # normalize column names just in case
         # expected: Feature, Importance
         if "Feature" not in df.columns or "Importance" not in df.columns:
-            print(f"⚠️ Skipping {f}: missing Feature/Importance columns.")
+            print(f"Skipping {f}: missing Feature/Importance columns.")
             continue
 
         per_task[task_key] = df.sort_values("Importance", ascending=False).reset_index(drop=True)
 
     if not per_task:
-        print("⚠️ No usable feature-importance files found.")
+        print("No usable feature-importance files found.")
         return
 
     # ---- combined ranking across tasks ----
@@ -718,7 +718,7 @@ def export_feature_importance_summary(results_folder, top_k=20):
     # ---- save combined CSV ----
     out_csv = os.path.join(results_folder, "Lorenz_feature_importance_combined_across_tasks.csv")
     merged.to_csv(out_csv, index=False)
-    print(f"✅ Saved combined FI CSV: {out_csv}")
+    print(f"Saved combined FI CSV: {out_csv}")
 
     # ---- write Excel with sheets ----
     out_xlsx = os.path.join(results_folder, "Lorenz_feature_importance_summary.xlsx")
@@ -731,7 +731,7 @@ def export_feature_importance_summary(results_folder, top_k=20):
         # combined
         merged.head(5 * top_k).to_excel(writer, sheet_name="combined", index=False)
 
-    print(f"✅ Saved FI Excel summary: {out_xlsx}")
+    print(f"Saved FI Excel summary: {out_xlsx}")
 
     # ---- optional: global plot top-K across tasks ----
     top = merged.head(top_k).copy()
@@ -744,7 +744,7 @@ def export_feature_importance_summary(results_folder, top_k=20):
     out_png = os.path.join(results_folder, "Lorenz_feature_importance_global_across_tasks.png")
     plt.savefig(out_png, dpi=200, bbox_inches="tight")
     plt.close()
-    print(f"✅ Saved global FI plot: {out_png}")
+    print(f"Saved global FI plot: {out_png}")
 
 
 # call it at the very end

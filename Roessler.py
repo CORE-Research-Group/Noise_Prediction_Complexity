@@ -625,45 +625,65 @@ run_grouped_cross_validation(
 def create_cv_summary_excel(results_folder):
     summary_rows = []
 
-    # Automatically detect all cv_reports
-    report_files = [f for f in os.listdir(results_folder) if f.startswith("cv_reports_") and f.endswith(".csv")]
+    # detect all Roessler_cv_reports_*.csv files
+    report_files = [
+        f for f in os.listdir(results_folder)
+        if f.startswith("Roessler_cv_reports_") and f.endswith(".csv")
+    ]
     if not report_files:
-        print(" No CV report files found in results folder!")
+        print("No CV report files found in results folder!")
+        print("Files in results_folder:", os.listdir(results_folder))
         return
 
-    for file in report_files:
+    for file in sorted(report_files):
         path = os.path.join(results_folder, file)
         df = pd.read_csv(path)
 
-        # Derive a clean task name
-        task_name = file.replace("cv_reports_", "").replace(".csv", "").replace("_", " ").title()
+        # task name from file name
+        task_name = (
+            file.replace("Roessler_cv_reports_", "")
+                .replace(".csv", "")
+                .replace("_", " ")
+                .title()
+        )
 
-        # Compute averages safely
+        # Each fold produced multiple rows; accuracy is repeated in each row via 'fold_accuracy'
+        # (you add fold_accuracy to every row), so just take the mean over folds by de-duplicating folds.
         acc = None
-        if "accuracy" in df.columns:
-            acc = df["accuracy"].mean()
-        elif "accuracy" in df.index:
-            acc = df.loc["accuracy", "f1-score"] if "f1-score" in df.columns else None
+        if "fold" in df.columns and "fold_accuracy" in df.columns:
+            acc = df.drop_duplicates(subset=["fold"])["fold_accuracy"].mean()
 
-        precision = df["precision"].mean() if "precision" in df.columns else None
-        recall = df["recall"].mean() if "recall" in df.columns else None
-        f1 = df["f1-score"].mean() if "f1-score" in df.columns else None
+        # Macro avg metrics (more meaningful than averaging over class rows)
+        precision = recall = f1 = None
+        if "macro avg" in df["Unnamed: 0"].values:
+            macro = df[df["Unnamed: 0"] == "macro avg"].iloc[0]
+            precision = macro.get("precision", None)
+            recall = macro.get("recall", None)
+            f1 = macro.get("f1-score", None)
+        else:
+            # fallback: if label column name differs
+            label_col = df.columns[0]
+            if "macro avg" in df[label_col].values:
+                macro = df[df[label_col] == "macro avg"].iloc[0]
+                precision = macro.get("precision", None)
+                recall = macro.get("recall", None)
+                f1 = macro.get("f1-score", None)
 
         summary_rows.append({
             "Task": task_name,
-            "Accuracy": acc,
-            "Precision": precision,
-            "Recall": recall,
-            "F1-Score": f1
+            "Accuracy (mean over folds)": acc,
+            "Macro Precision": precision,
+            "Macro Recall": recall,
+            "Macro F1": f1,
         })
 
-    # Combine and save
     summary_df = pd.DataFrame(summary_rows)
     summary_path = os.path.join(results_folder, "cv_summary_all_tasks.xlsx")
     summary_df.to_excel(summary_path, index=False)
 
-    print(f"\n Summary Excel created: {summary_path}")
+    print(f"\nSummary Excel created: {summary_path}")
     print(summary_df)
+
 
 
 # Rerun summary creation
