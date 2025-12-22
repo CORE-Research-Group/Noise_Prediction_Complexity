@@ -255,6 +255,7 @@ def extract_complexity_metrics(signal, t_eval, emb_dim=embedding_dimension, dela
 
                 "var1der": safe_scalar(calculate_variance_1st_derivative(embedded)),
                 "var2der": safe_scalar(calculate_variance_2nd_derivative(embedded)),
+
                 "std_dev": safe_scalar(np.std(segment)),
                 "mad": safe_scalar(np.mean(np.abs(segment - np.mean(segment)))),
                 "cv": safe_scalar(np.std(segment) / (np.mean(np.abs(segment)) + 1e-12)),
@@ -266,11 +267,8 @@ def extract_complexity_metrics(signal, t_eval, emb_dim=embedding_dimension, dela
                 "fisher_info": safe_scalar(calculate_fisher_information(segment)),
                 "sample_entropy": safe_scalar(sample_entropy_metric(segment)),
                 "lempel_ziv_complexity": safe_scalar(lempel_ziv_complexity_metric(segment)),
-
-                "fisher_info_nk": safe_scalar(
-                    calculate_fisher_information_nk(segment, delay=delay, dimension=emb_dim)
-                ),
-                "svd_entropy": safe_scalar(nk.entropy_svd(segment)),
+                "fisher_info_spectral": safe_scalar(spectral_fisher_information(embedded)),
+                "svd_entropy": safe_scalar(nk.entropy_svd(segment, delay=delay, dimension=emb_dim)),
                 "rel_decay": safe_scalar(relative_decay_singular_values(embedded)),
                 "svd_energy": safe_scalar(svd_energy(embedded, k=3)),
                 "condition_number": safe_scalar(condition_number(embedded)),

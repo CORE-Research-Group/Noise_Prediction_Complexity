@@ -163,6 +163,14 @@ def permutation_entropy_metric(time_series, order=3, delay=1):
     except Exception:
         return np.nan
 
+def spectral_fisher_information(embedded_matrix, eps=1e-12):
+    s = np.linalg.svd(embedded_matrix, full_matrices=False, compute_uv=False)
+    if len(s) < 2:
+        return np.nan
+    p = s / np.sum(s)
+    p = np.maximum(p, eps)
+    dp = np.diff(p)
+    return np.sum((dp**2) / p[:-1])
 
 def sample_entropy_metric(time_series):
     """Sample Entropy (SampEn)."""

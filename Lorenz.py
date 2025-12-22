@@ -212,10 +212,6 @@ def apply_noise(signal, t_eval, noise_type, intensity):
 # -----------------------------
 # Complexity metrics
 # -----------------------------
-def calculate_fisher_information_nk(time_series, delay=1, dimension=3):
-    fi, _ = nk.fisher_information(time_series, delay=delay, dimension=dimension)
-    return fi
-
 
 def safe_scalar(val):
     if isinstance(val, (list, tuple, np.ndarray)):
@@ -270,10 +266,8 @@ def extract_complexity_metrics(signal, t_eval, emb_dim=embedding_dimension, dela
                 "fisher_info": safe_scalar(calculate_fisher_information(segment)),
                 "sample_entropy": safe_scalar(sample_entropy_metric(segment)),
                 "lempel_ziv_complexity": safe_scalar(lempel_ziv_complexity_metric(segment)),
-                "fisher_info_nk": safe_scalar(
-                    calculate_fisher_information_nk(segment, delay=delay, dimension=emb_dim)
-                ),
-                "svd_entropy": safe_scalar(nk.entropy_svd(segment)),
+                "fisher_info_spectral": safe_scalar(spectral_fisher_information(embedded)),
+                "svd_entropy": safe_scalar(nk.entropy_svd(segment, delay=delay, dimension=emb_dim)),
                 "rel_decay": safe_scalar(relative_decay_singular_values(embedded)),
                 "svd_energy": safe_scalar(svd_energy(embedded, k=3)),
                 "condition_number": safe_scalar(condition_number(embedded)),

@@ -45,7 +45,7 @@ np.random.seed(42)
 n_runs = 5  # total runs per noise configuration
 
 # Will generate new data without checking if prior data exists
-force_regenerate = True
+force_regenerate = False
 
 noise_configs = {
     "gaussian": [1, 0.3, 0.1],
@@ -184,6 +184,7 @@ def extract_complexity_metrics(signal, t_eval, emb_dim=embedding_dimension, dela
                 "std_dev": safe_scalar(np.std(segment)),
                 "mad": safe_scalar(np.mean(np.abs(segment - np.mean(segment)))),
                 "cv": safe_scalar(np.std(segment) / (np.mean(np.abs(segment)) + 1e-12)),
+
                 "approximate_entropy": safe_scalar(nk.entropy_approximate(segment)),
                 "permutation_entropy": safe_scalar(permutation_entropy_metric(segment, order=3, delay=1)),
                 "dfa": safe_scalar(nk.fractal_dfa(segment)),
@@ -191,11 +192,8 @@ def extract_complexity_metrics(signal, t_eval, emb_dim=embedding_dimension, dela
                 "fisher_info": safe_scalar(calculate_fisher_information(segment)),
                 "sample_entropy": safe_scalar(sample_entropy_metric(segment)),
                 "lempel_ziv_complexity": safe_scalar(lempel_ziv_complexity_metric(segment)),
-
-                "fisher_info_nk": safe_scalar(
-                    calculate_fisher_information_nk(segment, delay=delay, dimension=emb_dim)
-                ),
-                "svd_entropy": safe_scalar(nk.entropy_svd(segment)),
+                "fisher_info_spectral": safe_scalar(spectral_fisher_information(embedded)),
+                "svd_entropy": safe_scalar(nk.entropy_svd(segment, delay=delay, dimension=emb_dim)),
                 "rel_decay": safe_scalar(relative_decay_singular_values(embedded)),
                 "svd_energy": safe_scalar(svd_energy(embedded, k=3)),
                 "condition_number": safe_scalar(condition_number(embedded)),
@@ -539,16 +537,7 @@ def run_grouped_cross_validation(task_label_col, task_name, loss_function="Multi
 
         print(f"\n Fold {fold}/5 – {task_name} (stratified by group)")
 
-        clf = CatBoostClassifier(
-            iterations=2000,
-            depth=8,
-            learning_rate=0.05,
-            loss_function=loss_function,
-            random_seed=42,
-            l2_leaf_reg=5,
-            rsm=0.8,
-            verbose=False
-        )
+        clf = CatBoostClassifier(verbose=False)
 
         clf.fit(X_train, y_train)
         y_pred = clf.predict(X_test)
