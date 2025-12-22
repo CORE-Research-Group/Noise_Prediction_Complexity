@@ -45,7 +45,7 @@ np.random.seed(42)
 n_runs = 5  # total runs per noise configuration
 
 # Will generate new data without checking if prior data exists
-force_regenerate = False
+force_regenerate = True
 
 noise_configs = {
     "gaussian": [1, 0.3, 0.1],

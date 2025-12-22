@@ -245,9 +245,9 @@ def create_results_folder(base_folder="Henon_Noise_Exp"):
     os.makedirs(folder_path, exist_ok=True)
     return folder_path
 
-results_folder = create_results_folder()
 base_folder = "Henon_Noise_Exp"
 os.makedirs(base_folder, exist_ok=True)
+results_folder = create_results_folder(base_folder)
 
 # -----------------------------
 # Metadata (kept identical)

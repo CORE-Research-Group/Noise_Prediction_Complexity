@@ -310,7 +310,7 @@ def create_dataset():
                 print(f"Run {run_id}: noise={noise_type}, intensity={intensity}, repeat={run + 1}/{n_runs}")
 
                 # Generate Rössler signal and apply noise
-                t_eval, clean = generate_roessler_series()
+                t_eval, clean = generate_roessler_series(run_id=run_id)
                 noisy = apply_noise(clean, t_eval, noise_type, intensity)
 
                 clean_norm, _ = zscore_scale(clean)
