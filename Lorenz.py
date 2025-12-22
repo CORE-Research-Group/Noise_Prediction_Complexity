@@ -269,7 +269,7 @@ def extract_complexity_metrics(signal, t_eval, emb_dim=embedding_dimension, dela
                 "fisher_info": safe_scalar(calculate_fisher_information(segment)),
                 "sample_entropy": safe_scalar(sample_entropy_metric(segment)),
                 "lempel_ziv_complexity": safe_scalar(lempel_ziv_complexity_metric(segment)),
-                "fisher_info_nk": safe_scalar(calculate_fisher_information_nk(embedded)),
+                "fisher_info_nk": safe_scalar(calculate_fisher_information_nk(segment)),
                 "svd_entropy": safe_scalar(nk.entropy_svd(segment, delay=delay, dimension=emb_dim)),
                 "rel_decay": safe_scalar(relative_decay_singular_values(embedded)),
                 "svd_energy": safe_scalar(svd_energy(embedded, k=3)),
