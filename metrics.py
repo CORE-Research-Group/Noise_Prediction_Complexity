@@ -155,22 +155,69 @@ def spectral_skewness(embedded_matrix):
     return np.mean(((s - mu) / sigma) ** 3) if sigma != 0 else np.nan
 
 
-def permutation_entropy_metric(time_series, order=3, delay=1):
+def permutation_entropy_metric(time_series, dimension=3, delay=1): #wrapper
     """Permutation Entropy using NeuroKit2."""
-    try:
-        pe = nk.entropy_permutation(time_series, order=order, delay=delay)
-        return pe[0] if isinstance(pe, tuple) else pe
-    except Exception:
-        return np.nan
+    pe = entropy_permutation_replacement(time_series, delay=delay, dimension=dimension)
 
-def spectral_fisher_information(embedded_matrix, eps=1e-12):
-    s = np.linalg.svd(embedded_matrix, full_matrices=False, compute_uv=False)
-    if len(s) < 2:
-        return np.nan
-    p = s / np.sum(s)
-    p = np.maximum(p, eps)
-    dp = np.diff(p)
-    return np.sum((dp**2) / p[:-1])
+    return pe
+
+
+import math
+def entropy_permutation_replacement(
+    signal, delay=1, dimension=3, corrected=True, weighted=False, conditional=False
+):
+    x = np.asarray(signal, dtype=float).ravel()
+    n = x.size
+    m = int(dimension)
+    tau = int(delay)
+
+    if m < 2:
+        raise ValueError("dimension must be >= 2")
+    if tau < 1:
+        raise ValueError("delay must be >= 1")
+
+    def _ordinal_patterns(m_):
+        L = n - (m_ - 1) * tau
+        if L <= 0:
+            raise ValueError("signal too short for given dimension/delay")
+
+        patterns = {}
+        wsum = {}
+        for i in range(L):
+            idx = i + tau * np.arange(m_)
+            w = x[idx]
+            key = tuple(np.argsort(w, kind="mergesort"))
+            patterns[key] = patterns.get(key, 0) + 1
+            if weighted:
+                v = float(np.var(w, ddof=0))
+                wsum[key] = wsum.get(key, 0.0) + v
+
+        if weighted:
+            total = sum(wsum.values())
+            p = np.array([wsum[k] / total for k in patterns.keys()], dtype=float)
+        else:
+            total = sum(patterns.values())
+            p = np.array([patterns[k] / total for k in patterns.keys()], dtype=float)
+
+        return p
+
+    def _shannon(p):
+        p = p[p > 0]
+        return float(-(p * np.log2(p)).sum())
+
+    Hm = _shannon(_ordinal_patterns(m))
+
+    if conditional:
+        Hm1 = _shannon(_ordinal_patterns(m + 1))
+        H = Hm1 - Hm
+        if corrected:
+            H /= math.log2(math.factorial(m + 1))
+        return H
+
+    if corrected:
+        Hm /= math.log2(math.factorial(m))
+    return Hm
+
 
 def sample_entropy_metric(time_series):
     """Sample Entropy (SampEn)."""
