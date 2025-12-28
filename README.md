@@ -106,9 +106,7 @@ The ML runner and global comparison scripts explicitly use the following feature
 
 ---
 
-## Installation
-
-### Requirements
+## Requirements
 
 python=3.11
 
