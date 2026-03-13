@@ -1,36 +1,37 @@
 """
-ML experiments runner (CatBoost, repeated group-aware train/test splits)
+ML experiments runner with CatBoost and repeated group aware train and test splits
 
 What this script does
-- Loads task datasets created in step 2 (ML_tasks/<Dataset>/exp_<add>/tasks/*.csv)
-- Runs multiple train/test splits (default: 100), group-aware by signal_id (no leakage)
-- Trains an out-of-the-box CatBoostClassifier each split
-- Saves per-split outputs (confusion matrix, classification report, feature importances, metrics)
-- Prints per-split results to console:
-  - confusion matrix (no plot)
-  - accuracy/precision/recall/f1
-  - classification report (text)
-- Saves aggregated outputs (mean/std over splits) + a human-readable TXT report
-- Optionally saves each trained model (default: True)
+Loads task datasets created in step 2 from ML_tasks/<Dataset>/exp_<add>/tasks/*.csv
+Runs multiple train and test splits by signal_id with no leakage
+Trains an out of the box CatBoostClassifier for each split
+Saves per split outputs for evaluation and reproducibility
+Prints per split results to the console
+  confusion matrix without plot
+  accuracy precision recall and f1
+  classification report as text
+Saves aggregated evaluation outputs with mean and standard deviation over splits together with a human readable TXT report
+Optionally saves each trained model by default set to True
+Saves exact row indices before and after optional balancing so posthoc XAI analysis can reconstruct the exact same datasets later
 
-Classification tasks (expected columns created in step 2)
-- Task 1: noise_label_task1  (multi-class)
-- Task 2: noise_label_task2  (multi-class)
-- Task 3: noise_present      (binary: 0/1)
+Classification tasks expected from step 2
+Task 1 uses noise_label_task1 and is multi class
+Task 2 uses noise_label_task2 and is multi class
+Task 3 uses noise_present and is binary with 0 and 1
 
 Notes
-- Uses only feature columns (complexity metrics). Identifiers like signal_id/run_id are excluded.
-- Train/test split is performed on unique signal_id (group level), with a pure run-id split:
-  - signal_id equals str(run_id)
-  - each split samples a random subset of run_ids for TEST, of size floor(TEST_SIZE * n_runs)
-  - TRAIN is the complement
-  - all window rows belonging to any test run_id are test, all others are train (no leakage)
-- Unique-combination rule:
-  - The test set is a combination of n_test run_ids from n_runs total.
-  - Maximum unique splits is C(n_runs, n_test). If N_SPLITS exceeds that, an error is raised.
-- RNG control:
-  - Seeds are reset per split using reseed_all(BASE_RANDOM_SEED + split_idx).
-  - CatBoost random_seed is also set to BASE_RANDOM_SEED + split_idx.
+Only feature columns with complexity metrics are used. Identifiers such as signal_id and run_id are excluded.
+Train and test splitting is performed on unique signal_id values at group level using a pure run_id split
+  signal_id equals str(run_id)
+  each split samples a random subset of run_ids for the test set with size floor(TEST_SIZE * n_runs)
+  the training set is the complement
+  all window rows belonging to a selected test run_id go to test and all others go to train with no leakage
+Unique combination rule
+  the test set is a combination of n_test run_ids chosen from n_runs total
+  the maximum number of unique splits is C(n_runs, n_test). If N_SPLITS is larger an error is raised.
+RNG control
+  seeds are reset for each split with reseed_all(BASE_RANDOM_SEED + split_idx)
+  the CatBoost random_seed is also set to BASE_RANDOM_SEED + split_idx
 """
 
 from __future__ import annotations
@@ -57,12 +58,13 @@ from sklearn.metrics import (
 from catboost import CatBoostClassifier
 
 
+
 # =============================================================================
 # User settings
 # =============================================================================
 
 # Must match step-2 outputs
-DATASET_NAME = "Roessler"  # later: "ECG", "Lorenz", ...
+DATASET_NAME = "AR1"  # later: "ECG", "Lorenz", ...
 add = "ed10_td1_mc300"
 
 ML_TASKS_ROOT = "ML_tasks"
@@ -203,20 +205,26 @@ def downsample_to_minority(
     X: pd.DataFrame,
     y: pd.Series,
     rng: np.random.Generator,
-) -> Tuple[pd.DataFrame, pd.Series]:
+) -> Tuple[pd.DataFrame, pd.Series, np.ndarray]:
     """
     Downsample so every class has exactly the minority class count.
 
+    Returns
+    - Xb
+    - yb
+    - keep_idx as original row indices from the source dataframe
+
+    Notes
     - If multiple classes tie for the minimum, they are all kept fully.
     - Every other class is randomly sampled down to that same minimum count.
     """
     counts = y.value_counts(dropna=False)
     if counts.empty:
-        return X, y
+        return X, y, X.index.to_numpy()
 
     min_count = int(counts.min())
     if min_count <= 0:
-        return X, y
+        return X, y, X.index.to_numpy()
 
     keep_idx_parts: List[np.ndarray] = []
     for cls, cnt in counts.items():
@@ -232,7 +240,7 @@ def downsample_to_minority(
 
     Xb = X.loc[keep_idx]
     yb = y.loc[keep_idx]
-    return Xb, yb
+    return Xb, yb, keep_idx
 
 
 # =============================================================================
@@ -299,10 +307,8 @@ def run_task_experiment(
         print(f"  - {k}: {v}")
     print("------------------------------------------------------------")
 
-    # Make a stable string view of signal_id and ALWAYS use that for splitting.
     sid = df["signal_id"].astype(str)
 
-    # labels order for consistent confusion matrices
     if spec.is_binary:
         labels_all = [0, 1]
     else:
@@ -330,7 +336,6 @@ def run_task_experiment(
 
     split_metrics_rows: List[Dict[str, Any]] = []
     cm_list: List[np.ndarray] = []
-    fi_list: List[pd.DataFrame] = []
 
     seen_test_sets: set = set()
 
@@ -351,10 +356,15 @@ def run_task_experiment(
         X_test = df.loc[test_mask, feature_cols]
         y_test = df.loc[test_mask, spec.label_col]
 
-        # optional balancing by downsampling to minority count (TRAIN and TEST)
+        train_row_indices_before_balance = X_train.index.to_numpy()
+        test_row_indices_before_balance = X_test.index.to_numpy()
+
         if BALANCE_DATASETS:
-            X_train, y_train = downsample_to_minority(X_train, y_train, rng=rng)
-            X_test, y_test = downsample_to_minority(X_test, y_test, rng=rng)
+            X_train, y_train, train_row_indices_after_balance = downsample_to_minority(X_train, y_train, rng=rng)
+            X_test, y_test, test_row_indices_after_balance = downsample_to_minority(X_test, y_test, rng=rng)
+        else:
+            train_row_indices_after_balance = train_row_indices_before_balance
+            test_row_indices_after_balance = test_row_indices_before_balance
 
         split_folder = os.path.join(out_dir, "splits", f"split_{split_idx:03d}")
         ensure_dirs(split_folder)
@@ -364,12 +374,23 @@ def run_task_experiment(
             {"split": split_idx, "train_ids": train_ids, "test_ids": test_ids},
         )
 
+        save_json(
+            os.path.join(split_folder, "balanced_row_indices.json"),
+            {
+                "split": split_idx,
+                "balanced_datasets": bool(BALANCE_DATASETS),
+                "train_row_indices_before_balance": train_row_indices_before_balance.tolist(),
+                "test_row_indices_before_balance": test_row_indices_before_balance.tolist(),
+                "train_row_indices_after_balance": train_row_indices_after_balance.tolist(),
+                "test_row_indices_after_balance": test_row_indices_after_balance.tolist(),
+            },
+        )
+
         print(
             f"[{split_idx:03d}/{n_splits}] train_runs={len(train_ids)} test_runs={len(test_ids)} "
             f"train_rows={len(X_train)} test_rows={len(X_test)}"
         )
 
-        # hard fail early if something is empty (prevents cryptic CatBoost error)
         if len(X_train) == 0 or len(X_test) == 0:
             raise RuntimeError(
                 "Empty train/test rows after split.\n"
@@ -392,7 +413,11 @@ def run_task_experiment(
         cm = confusion_matrix(y_test, y_pred, labels=labels_all)
         cm_list.append(cm)
 
-        cm_df = pd.DataFrame(cm, index=[f"true_{l}" for l in labels_all], columns=[f"pred_{l}" for l in labels_all])
+        cm_df = pd.DataFrame(
+            cm,
+            index=[f"true_{l}" for l in labels_all],
+            columns=[f"pred_{l}" for l in labels_all],
+        )
         cm_df.to_csv(os.path.join(split_folder, "confusion_matrix.csv"), index=True)
 
         rep_df = classification_report_table(y_test, y_pred)
@@ -409,12 +434,6 @@ def run_task_experiment(
             **m,
         }
         split_metrics_rows.append(m_row)
-
-        importances = model.get_feature_importance()
-        fi = pd.DataFrame({"feature": feature_cols, "importance": importances})
-        fi["split"] = split_idx
-        fi.to_csv(os.path.join(split_folder, "feature_importance.csv"), index=False)
-        fi_list.append(fi)
 
         if save_models:
             model_path = os.path.join(split_folder, "catboost_model.cbm")
@@ -469,16 +488,6 @@ def run_task_experiment(
     cm_mean_df.to_csv(os.path.join(out_dir, "aggregate", "confusion_matrix_mean.csv"), index=True)
     cm_norm_df.to_csv(os.path.join(out_dir, "aggregate", "confusion_matrix_mean_normalized.csv"), index=True)
 
-    fi_all = pd.concat(fi_list, ignore_index=True)
-    fi_stats = (
-        fi_all.groupby("feature")["importance"]
-        .agg(["mean", "std"])
-        .sort_values("mean", ascending=False)
-        .reset_index()
-    )
-    fi_all.to_csv(os.path.join(out_dir, "aggregate", "feature_importance_all_splits.csv"), index=False)
-    fi_stats.to_csv(os.path.join(out_dir, "aggregate", "feature_importance_mean_std.csv"), index=False)
-
     report_lines = []
     report_lines.append(f"Task: {spec.task_key}")
     report_lines.append(f"Label column: {spec.label_col}")
@@ -494,20 +503,17 @@ def run_task_experiment(
     report_lines.append("Labels order (confusion matrices):")
     report_lines.append("  " + ", ".join(str(x) for x in labels_all))
     report_lines.append("")
-    report_lines.append("Top 20 features by mean importance:")
-    top20 = fi_stats.head(20)
-    for _, r in top20.iterrows():
-        report_lines.append(
-            f"  {r['feature']}: {r['mean']:.6f} ± {0.0 if pd.isna(r['std']) else r['std']:.6f}"
-        )
-    report_lines.append("")
     report_lines.append("Files written:")
     report_lines.append("  aggregate/split_metrics.csv")
     report_lines.append("  aggregate/metrics_summary.json")
     report_lines.append("  aggregate/confusion_matrix_mean.csv")
     report_lines.append("  aggregate/confusion_matrix_mean_normalized.csv")
-    report_lines.append("  aggregate/feature_importance_mean_std.csv")
-    report_lines.append("  splits/split_XXX/... per split outputs")
+    report_lines.append("  splits/split_XXX/split_ids.json")
+    report_lines.append("  splits/split_XXX/balanced_row_indices.json")
+    report_lines.append("  splits/split_XXX/catboost_model.cbm")
+    report_lines.append("  splits/split_XXX/confusion_matrix.csv")
+    report_lines.append("  splits/split_XXX/classification_report.csv")
+    report_lines.append("  splits/split_XXX/classification_report.json")
 
     report_path = os.path.join(out_dir, "aggregate", "report.txt")
     with open(report_path, "w", encoding="utf-8") as f:

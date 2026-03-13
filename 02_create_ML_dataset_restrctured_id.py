@@ -51,7 +51,7 @@ from metrics import *  # delay_embed, Fisher, PE, SampEn, LZ, etc.
 # Use-case selection (0..4)
 # 0: Roessler, 1: ECG, 2: Lorenz, 3: Henon, 4: AR1
 # -----------------------------
-USE_CASE = 1  # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+USE_CASE = 4  # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 USE_CASES: Dict[int, Dict[str, str]] = {
     0: {
